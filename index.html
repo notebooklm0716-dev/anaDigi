@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>アナログ時計で描くデジタル時計</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🕐</text></svg>">
+<style>
+    :root {
+        /* 全体は「時6行×4列×2桁 ＋ 少しの空白 ＋ 分6行×4列×2桁」= 横16個＋空白、縦6個。
+           どの画面でも1画面に収まるよう、幅と高さの小さい方から時計サイズを決める */
+        --clock-size: min(5.3vw, 13.2vh);
+        /* 配色：背景は薄く柔らかなクリーム、文字盤は白、
+           短針・長針は統一色の黒（実験指定） */
+        --ink: #3a362c;
+        --face: #ffffff;
+        --hand-color: #222222;   /* 短針・長針の統一色（黒） */
+        --second-color: #e8a100; /* 秒針のみアンバー（白の上で見える濃さ） */
+    }
+
+    * { -webkit-tap-highlight-color: transparent; }
+
+    html, body {
+        margin: 0;
+        padding: 0;
+        height: 100dvh;
+        overflow: hidden;
+        overscroll-behavior: none;
+    }
+
+    body {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        background: radial-gradient(120% 90% at 50% 38%, #fdfaf2 0%, #faf3e2 55%, #f3ead3 100%);
+        font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+        color: var(--ink);
+        cursor: pointer;
+        user-select: none;
+        touch-action: manipulation;
+    }
+
+    header {
+        text-align: center;
+        margin-bottom: calc(var(--clock-size) * 0.28);
+        pointer-events: none;
+    }
+
+    header h1 {
+        margin: 0;
+        font-size: clamp(0.72rem, 2.4vmin, 1rem);
+        font-weight: 600;
+        letter-spacing: 0.42em;
+        text-indent: 0.42em;
+        color: var(--ink);
+    }
+
+    header p {
+        margin: 0.35em 0 0;
+        font-size: clamp(0.6rem, 1.9vmin, 0.8rem);
+        letter-spacing: 0.18em;
+        text-indent: 0.18em;
+        color: #a2936f;
+    }
+
+    /* ===== ステージ： [時 2桁] 空白 [分 2桁] ===== */
+    .stage {
+        display: flex;
+        align-items: center;
+        gap: calc(var(--clock-size) * 0.55); /* 時と分の間の空白 */
+    }
+
+    .group {
+        display: flex;
+        gap: calc(var(--clock-size) * 0.22); /* 桁と桁の間の小さな空白 */
+    }
+
+    .digit {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        grid-template-rows: repeat(6, 1fr);
+        gap: calc(var(--clock-size) * 0.035);
+    }
+
+    /* 時と分の間はコロンなしの、ただの空白（.stage の gap） */
+
+    /* ===== 小さなアナログ時計 ===== */
+    .clock {
+        width: var(--clock-size);
+        height: var(--clock-size);
+        border-radius: 50%;
+        background: radial-gradient(circle at 35% 30%, #ffffff 0%, var(--face) 60%, #f4efe2 100%);
+        border: 1px solid #ddd2b8;
+        box-shadow: 0 2px 6px rgba(122, 102, 58, 0.22), inset 0 0 0 1px rgba(255,255,255,0.6);
+        position: relative;
+        box-sizing: border-box;
+    }
+
+    .tick {
+        position: absolute;
+        width: calc(var(--clock-size) * 0.045);
+        height: calc(var(--clock-size) * 0.045);
+        border-radius: 50%;
+        background: #d9cfb4;
+    }
+    .tick.t12 { top: 6%;  left: 50%; transform: translateX(-50%); }
+    .tick.t3  { right: 6%; top: 50%; transform: translateY(-50%); }
+    .tick.t6  { bottom: 6%; left: 50%; transform: translateX(-50%); }
+    .tick.t9  { left: 6%;  top: 50%; transform: translateY(-50%); }
+
+    .hand {
+        position: absolute;
+        bottom: 50%;
+        left: 50%;
+        transform-origin: bottom center;
+        border-radius: 999px;
+        /* 遷移はJSで等速制御するのでCSS transitionは使わない */
+    }
+
+    /* 数字を描くとき両針が線として揃って見えるよう長さは近づけ、
+       色は短針・長針とも統一の黒 */
+    .hour {
+        width: calc(var(--clock-size) * 0.078);
+        height: 43%;
+        margin-left: calc(var(--clock-size) * -0.039);
+        background: var(--hand-color);
+        z-index: 3;
+    }
+
+    .minute {
+        width: calc(var(--clock-size) * 0.06);
+        height: 45.5%;
+        margin-left: calc(var(--clock-size) * -0.03);
+        background: var(--hand-color);
+        z-index: 4;
+    }
+
+    .second {
+        width: max(1px, calc(var(--clock-size) * 0.018));
+        height: 47%;
+        margin-left: calc(var(--clock-size) * -0.009);
+        background: var(--second-color);
+        z-index: 5;
+        transition: opacity 0.45s ease;
+    }
+
+    /* 数字表示モードでは秒針を消す */
+    .stage.digit-mode .second { opacity: 0; }
+
+    .center-dot {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: calc(var(--clock-size) * 0.13);
+        height: calc(var(--clock-size) * 0.13);
+        background: var(--ink);
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 10;
+    }
+
+    footer {
+        margin-top: calc(var(--clock-size) * 0.3);
+        text-align: center;
+        pointer-events: none;
+    }
+
+    .readout {
+        font-family: "SF Mono", Consolas, monospace;
+        font-size: clamp(0.85rem, 3vmin, 1.25rem);
+        letter-spacing: 0.3em;
+        text-indent: 0.3em;
+        color: var(--ink);
+    }
+
+    .readout .mode {
+        font-size: 0.62em;
+        letter-spacing: 0.22em;
+        color: #a2936f;
+        margin-left: 0.9em;
+    }
+
+    .hint {
+        margin-top: 0.45em;
+        font-size: clamp(0.6rem, 1.9vmin, 0.78rem);
+        letter-spacing: 0.14em;
+        text-indent: 0.14em;
+        color: #a2936f;
+    }
+
+    /* 縦長画面（スマホ縦持ち等）では
+         ２３
+         １５
+       のように時部を上・分部を下に積む。時部と分部の間はやや広めの空白。
+       時計サイズは「横：8個＋桁間隔が画面幅に収まる」「縦：12行＋時分間の空白＋
+       見出し/読み出しが画面高さに収まる」の両方から計算する */
+    @media (orientation: portrait) {
+        :root { --clock-size: min(11.2vw, 6.0vh); }
+        .stage {
+            flex-direction: column;
+            gap: calc(var(--clock-size) * 0.85);
+        }
+    }
+</style>
+
+    <!-- PWA設定 -->
+    <link rel="manifest" href="./manifest.json">
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png">
+    <link rel="icon" type="image/svg+xml" href="./icon.svg">
+    <link rel="icon" href="./favicon.ico" sizes="any">
+    <meta name="theme-color" content="#ffffff">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="アナデジ">
+</head>
+<body>
+
+<header>
+    <h1>ANALOG × DIGITAL</h1>
+    <p>96個のアナログ時計で描くデジタル時計</p>
+</header>
+
+<main class="stage" id="stage">
+    <!-- JSで [時: 数字2つ] 空白 [分: 数字2つ] を生成 -->
+</main>
+
+<footer>
+    <div class="readout"><span id="readout">--:--:--</span><span class="mode" id="modeLabel">ANALOG</span></div>
+    <div class="hint">画面をタップすると、針が回って時刻の数字になります ／ もう一度タップで時計に戻ります</div>
+</footer>
+
+<script>
+    // ===== 元デモの「形」と「数字パターン」をそのまま流用（4列×6行 = 24個/桁） =====
+    const SHAPES = {
+        cornerTL: { h: 90,  m: 180 },
+        cornerTR: { h: 180, m: 270 },
+        cornerBR: { h: 0,   m: 270 },
+        cornerBL: { h: 0,   m: 90  },
+        vertical:   { h: 180, m: 0 },
+        horizontal: { h: 90,  m: 270 },
+        up:    { h: 0,   m: 0 },
+        right: { h: 90,  m: 90 },
+        down:  { h: 180, m: 180 },
+        left:  { h: 270, m: 270 },
+        neutral: { h: 225, m: 225 }
+    };
+
+    const DIGIT_PATTERNS = {
+        0: [
+            'cornerTL', 'horizontal', 'horizontal', 'cornerTR',
+            'vertical', 'cornerTL',   'cornerTR',   'vertical',
+            'vertical', 'vertical',   'vertical',   'vertical',
+            'vertical', 'vertical',   'vertical',   'vertical',
+            'vertical', 'cornerBL',   'cornerBR',   'vertical',
+            'cornerBL', 'horizontal', 'horizontal', 'cornerBR'
+        ],
+        1: [
+            'neutral',  'cornerTL',   'cornerTR',   'neutral',
+            'neutral',  'vertical',   'vertical',   'neutral',
+            'neutral',  'vertical',   'vertical',   'neutral',
+            'neutral',  'vertical',   'vertical',   'neutral',
+            'neutral',  'vertical',   'vertical',   'neutral',
+            'neutral',  'cornerBL',   'cornerBR',   'neutral'
+        ],
+        2: [
+            'cornerTL', 'horizontal', 'horizontal', 'cornerTR',
+            'cornerBL', 'horizontal', 'cornerTR',   'vertical',
+            'cornerTL', 'horizontal', 'cornerBR',   'vertical',
+            'vertical', 'cornerTL',   'horizontal', 'cornerBR',
+            'vertical', 'cornerBL',   'horizontal', 'cornerTR',
+            'cornerBL', 'horizontal', 'horizontal', 'cornerBR'
+        ],
+        3: [
+            'cornerTL', 'horizontal', 'horizontal', 'cornerTR',
+            'cornerBL', 'horizontal', 'cornerTR',   'vertical',
+            'neutral',  'cornerTL',   'cornerBR',   'vertical',
+            'neutral',  'cornerBL',   'cornerTR',   'vertical',
+            'cornerTL', 'horizontal', 'cornerBR',   'vertical',
+            'cornerBL', 'horizontal', 'horizontal', 'cornerBR'
+        ],
+        4: [
+            'cornerTL', 'cornerTR',   'cornerTL',   'cornerTR',
+            'vertical', 'vertical',   'vertical',   'vertical',
+            'vertical', 'cornerBL',   'cornerBR',   'vertical',
+            'cornerBL', 'horizontal', 'cornerTR',   'vertical',
+            'neutral',  'neutral',    'vertical',   'vertical',
+            'neutral',  'neutral',    'cornerBL',   'cornerBR'
+        ],
+        5: [
+            'cornerTL', 'horizontal', 'horizontal', 'cornerTR',
+            'vertical', 'cornerTL',   'horizontal', 'cornerBR',
+            'vertical', 'cornerBL',   'horizontal', 'cornerTR',
+            'cornerBL', 'horizontal', 'cornerTR',   'vertical',
+            'cornerTL', 'horizontal', 'cornerBR',   'vertical',
+            'cornerBL', 'horizontal', 'horizontal', 'cornerBR'
+        ],
+        6: [
+            'cornerTL', 'horizontal', 'horizontal', 'cornerTR',
+            'vertical', 'cornerTL',   'horizontal', 'cornerBR',
+            'vertical', 'cornerBL',   'horizontal', 'cornerTR',
+            'vertical', 'cornerTL',   'cornerTR',   'vertical',
+            'vertical', 'cornerBL',   'cornerBR',   'vertical',
+            'cornerBL', 'horizontal', 'horizontal', 'cornerBR'
+        ],
+        7: [
+            'cornerTL', 'horizontal', 'horizontal', 'cornerTR',
+            'cornerBL', 'horizontal', 'cornerTR',   'vertical',
+            'neutral',  'neutral',    'vertical',   'vertical',
+            'neutral',  'neutral',    'vertical',   'vertical',
+            'neutral',  'neutral',    'vertical',   'vertical',
+            'neutral',  'neutral',    'cornerBL',   'cornerBR'
+        ],
+        8: [
+            'cornerTL', 'horizontal', 'horizontal', 'cornerTR',
+            'vertical', 'cornerTL',   'cornerTR',   'vertical',
+            'vertical', 'cornerBL',   'cornerBR',   'vertical',
+            'vertical', 'cornerTL',   'cornerTR',   'vertical',
+            'vertical', 'cornerBL',   'cornerBR',   'vertical',
+            'cornerBL', 'horizontal', 'horizontal', 'cornerBR'
+        ],
+        9: [
+            'cornerTL', 'horizontal', 'horizontal', 'cornerTR',
+            'vertical', 'cornerTL',   'cornerTR',   'vertical',
+            'vertical', 'cornerBL',   'cornerBR',   'vertical',
+            'cornerBL', 'horizontal', 'cornerTR',   'vertical',
+            'cornerTL', 'horizontal', 'cornerBR',   'vertical',
+            'cornerBL', 'horizontal', 'horizontal', 'cornerBR'
+        ]
+    };
+
+    // ===== 状態 =====
+    const SPEED = 160; // 度/秒。全ての針がこの同じ速度で時計回りに回る（ゆっくり）
+    const stage = document.getElementById('stage');
+    const readoutEl = document.getElementById('readout');
+    const modeLabelEl = document.getElementById('modeLabel');
+
+    // clocks[桁][セル] = {h,m,s（現在の累積角度）, hT,mT,sT（目標）, 各針要素}
+    const digitsState = [];
+    let mode = 'analog';           // 'analog' | 'animating' | 'digit'
+    let displayedHHMM = null;      // 数字モードで表示中の "HHMM"
+    let animTargetMode = null;     // 遷移の行き先 'digit' | 'analog'
+
+    // ===== DOM生成： 時グループ(2桁) + 空白 + 分グループ(2桁) =====
+    function createClockCell() {
+        const div = document.createElement('div');
+        div.className = 'clock';
+        div.innerHTML = `
+            <span class="tick t12"></span><span class="tick t3"></span>
+            <span class="tick t6"></span><span class="tick t9"></span>
+            <div class="hand hour"></div>
+            <div class="hand minute"></div>
+            <div class="hand second"></div>
+            <div class="center-dot"></div>`;
+        return div;
+    }
+
+    function buildStage() {
+        for (let g = 0; g < 2; g++) {           // 0:時グループ, 1:分グループ
+            const group = document.createElement('div');
+            group.className = 'group';
+            for (let d = 0; d < 2; d++) {       // 10の位・1の位
+                const digitEl = document.createElement('div');
+                digitEl.className = 'digit';
+                const cells = [];
+                for (let i = 0; i < 24; i++) {
+                    const cell = createClockCell();
+                    digitEl.appendChild(cell);
+                    cells.push({
+                        h: 0, m: 0, s: 0, hT: 0, mT: 0, sT: 0,
+                        hourEl: cell.querySelector('.hour'),
+                        minuteEl: cell.querySelector('.minute'),
+                        secondEl: cell.querySelector('.second')
+                    });
+                }
+                group.appendChild(digitEl);
+                digitsState.push(cells);
+            }
+            stage.appendChild(group);
+            // 時と分の間は .stage の gap による空白のみ（コロンなし）
+        }
+    }
+
+    function allCells() {
+        return digitsState.flat();
+    }
+
+    function applyAngles(c) {
+        c.hourEl.style.transform = `rotate(${c.h}deg)`;
+        c.minuteEl.style.transform = `rotate(${c.m}deg)`;
+        c.secondEl.style.transform = `rotate(${c.s}deg)`;
+    }
+
+    // 常に時計回り：目標(0-360)まで時計回りに進んだ累積角度を返す（元デモと同じ考え方）
+    function nextClockwise(current, target) {
+        let norm = current % 360;
+        if (norm < 0) norm += 360;
+        let diff = target - norm;
+        if (diff < 0) diff += 360;
+        return current + diff;
+    }
+
+    function timeAngles(now) {
+        const s = now.getSeconds() + now.getMilliseconds() / 1000;
+        const m = now.getMinutes() + s / 60;
+        const h = (now.getHours() % 12) + m / 60;
+        return { h: h * 30, m: m * 6, s: s * 6 };
+    }
+
+    function hhmmString(now) {
+        return String(now.getHours()).padStart(2, '0') + String(now.getMinutes()).padStart(2, '0');
+    }
+
+    // ===== アナログ表示（全時計が現時刻） =====
+    function tickAnalog() {
+        const a = timeAngles(new Date());
+        for (const c of allCells()) {
+            c.h = nextClockwise(c.h, a.h);
+            c.m = nextClockwise(c.m, a.m);
+            c.s = nextClockwise(c.s, a.s);
+            applyAngles(c);
+        }
+    }
+
+    // ===== 等速・時計回りの遷移アニメーション =====
+    // 全ての針が同時に動き出し、同じ角速度(度/秒)で時計回りに回り、
+    // 自分の目標に着いた針から止まっていく。
+    // 駆動は setInterval + performance.now() の実経過時間ベース。
+    // （requestAnimationFrame は環境によって止まることがあるため使わない）
+    function stepAnimation(dt) {
+        const step = SPEED * dt;
+        let allDone = true;
+
+        for (const c of allCells()) {
+            for (const key of ['h', 'm', 's']) {
+                const target = c[key + 'T'];
+                const rest = target - c[key];
+                if (rest > 0) {
+                    c[key] += Math.min(step, rest);
+                    if (c[key] < target) allDone = false;
+                }
+            }
+            applyAngles(c);
+        }
+
+        if (allDone) {
+            mode = animTargetMode;
+            animTargetMode = null;
+            modeLabelEl.textContent = mode === 'digit' ? 'DIGITAL' : 'ANALOG';
+        }
+    }
+
+    function startAnimation() {
+        mode = 'animating';
+    }
+
+    // 数字表示へ：現在の HH:MM（24時間制）を4桁のパターンに割り当てる
+    function transitionToDigit() {
+        const now = new Date();
+        displayedHHMM = hhmmString(now);
+        digitsState.forEach((cells, digitIdx) => {
+            const pattern = DIGIT_PATTERNS[Number(displayedHHMM[digitIdx])];
+            cells.forEach((c, i) => {
+                const shape = SHAPES[pattern[i]] || SHAPES.neutral;
+                c.hT = nextClockwise(c.h, shape.h);
+                c.mT = nextClockwise(c.m, shape.m);
+                c.sT = nextClockwise(c.s, 0); // 秒針は12時位置へ回してから消える
+            });
+        });
+        stage.classList.add('digit-mode');
+        animTargetMode = 'digit';
+        modeLabelEl.textContent = 'MOVING…';
+        startAnimation();
+    }
+
+    // アナログ表示へ戻る：全時計が現時刻の針位置まで等速で回る
+    function transitionToAnalog() {
+        const a = timeAngles(new Date());
+        for (const c of allCells()) {
+            c.hT = nextClockwise(c.h, a.h);
+            c.mT = nextClockwise(c.m, a.m);
+            c.sT = nextClockwise(c.s, a.s);
+        }
+        stage.classList.remove('digit-mode');
+        displayedHHMM = null;
+        animTargetMode = 'analog';
+        modeLabelEl.textContent = 'MOVING…';
+        startAnimation();
+    }
+
+    function toggleDisplay() {
+        if (mode === 'animating') return; // 遷移中のタップは無視（同期を崩さない）
+        if (mode === 'analog') transitionToDigit();
+        else transitionToAnalog();
+    }
+    window.toggleDisplay = toggleDisplay;
+
+    // ===== イベント =====
+    document.addEventListener('click', toggleDisplay);
+    document.addEventListener('keydown', (e) => {
+        if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); toggleDisplay(); }
+    });
+
+    // ===== メインループ（約33ms間隔） =====
+    let lastTickTime = performance.now();
+
+    function mainLoop() {
+        const nowMs = performance.now();
+        const dt = Math.min((nowMs - lastTickTime) / 1000, 0.05); // タブ復帰時の跳びを抑える
+        lastTickTime = nowMs;
+        if (mode === 'analog') tickAnalog();
+        else if (mode === 'animating') stepAnimation(dt);
+    }
+
+    // 読み出し表示の更新と、数字モード中の「分の切り替わり」検知
+    setInterval(() => {
+        const now = new Date();
+        readoutEl.textContent =
+            String(now.getHours()).padStart(2, '0') + ':' +
+            String(now.getMinutes()).padStart(2, '0') + ':' +
+            String(now.getSeconds()).padStart(2, '0');
+        if (mode === 'digit' && hhmmString(now) !== displayedHHMM) {
+            transitionToDigit(); // 分が変わったら、新しい数字へ回り直す
+        }
+    }, 250);
+
+    buildStage();
+    tickAnalog();
+    setInterval(mainLoop, 33);
+</script>
+
+
+<!-- PWA_GENERATOR_SW_REGISTRATION -->
+<script>
+(function () {
+    function registerPwaServiceWorker() {
+        if (!("serviceWorker" in navigator)) return;
+        navigator.serviceWorker.register("./sw.js")
+            .then(function (registration) {
+                console.log("Service Worker registered successfully:", registration.scope);
+            })
+            .catch(function (error) {
+                console.error("Service Worker registration failed:", error);
+            });
+    }
+    // window.onload を上書きせず、既存アプリの初期化処理と共存させる
+    window.addEventListener("load", registerPwaServiceWorker);
+})();
+</script>
+</body>
+</html>
