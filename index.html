@@ -161,7 +161,8 @@
     }
 
     footer {
-        margin-top: calc(var(--clock-size) * 0.3);
+        /* 読み出し時刻を1段下げるため、上に1行分ほど余分に空ける */
+        margin-top: calc(var(--clock-size) * 0.3 + 1.5rem);
         text-align: center;
         pointer-events: none;
     }
@@ -172,21 +173,6 @@
         letter-spacing: 0.3em;
         text-indent: 0.3em;
         color: var(--ink);
-    }
-
-    .readout .mode {
-        font-size: 0.62em;
-        letter-spacing: 0.22em;
-        color: #a2936f;
-        margin-left: 0.9em;
-    }
-
-    .hint {
-        margin-top: 0.45em;
-        font-size: clamp(0.6rem, 1.9vmin, 0.78rem);
-        letter-spacing: 0.14em;
-        text-indent: 0.14em;
-        color: #a2936f;
     }
 
     /* 縦長画面（スマホ縦持ち等）では
@@ -219,7 +205,7 @@
 
 <header>
     <h1>ANALOG × DIGITAL</h1>
-    <p>96個のアナログ時計で描くデジタル時計</p>
+    <p>&nbsp;</p><!-- キャプションは消去。場所は空白のまま確保 -->
 </header>
 
 <main class="stage" id="stage">
@@ -227,8 +213,7 @@
 </main>
 
 <footer>
-    <div class="readout"><span id="readout">--:--:--</span><span class="mode" id="modeLabel">ANALOG</span></div>
-    <div class="hint">画面をタップすると、針が回って時刻の数字になります ／ もう一度タップで時計に戻ります</div>
+    <div class="readout"><span id="readout">--:--:--</span></div>
 </footer>
 
 <script>
@@ -334,7 +319,6 @@
     const SPEED = 160; // 度/秒。全ての針がこの同じ速度で時計回りに回る（ゆっくり）
     const stage = document.getElementById('stage');
     const readoutEl = document.getElementById('readout');
-    const modeLabelEl = document.getElementById('modeLabel');
 
     // clocks[桁][セル] = {h,m,s（現在の累積角度）, hT,mT,sT（目標）, 各針要素}
     const digitsState = [];
@@ -447,7 +431,6 @@
         if (allDone) {
             mode = animTargetMode;
             animTargetMode = null;
-            modeLabelEl.textContent = mode === 'digit' ? 'DIGITAL' : 'ANALOG';
         }
     }
 
@@ -470,7 +453,6 @@
         });
         stage.classList.add('digit-mode');
         animTargetMode = 'digit';
-        modeLabelEl.textContent = 'MOVING…';
         startAnimation();
     }
 
@@ -485,7 +467,6 @@
         stage.classList.remove('digit-mode');
         displayedHHMM = null;
         animTargetMode = 'analog';
-        modeLabelEl.textContent = 'MOVING…';
         startAnimation();
     }
 
