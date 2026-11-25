@@ -427,7 +427,7 @@
 
     // ===== ランダムグロー（アナログ表示中だけ） =====
     // 96個のうちランダムな1つだけが、ゆっくり淡く赤く光る（フェードイン1.6秒＝CSS側）、
-    // 2秒光り続け、ゆっくり消える（フェードアウト1.6秒）。間を少し空けて繰り返す。
+    // 2秒光り続け、ゆっくり消える（フェードアウト1.6秒）。消え切ったらタイムラグなしに次が光る。
     const GLOW_HOLD_MS = 2000;   // 光り続ける時間
     const GLOW_FADE_MS = 1600;   // CSSの transition と同じ
     let glowTimer = null;
@@ -464,7 +464,7 @@
             glowTimer = setTimeout(() => {
                 if (currentGlowEl === el) currentGlowEl = null;
                 if (!glowRunning) return;
-                glowTimer = setTimeout(glowCycle, 600 + Math.random() * 1600); // 次までの間（ランダム）
+                glowCycle();                                      // 消え切ったら間を空けず次へ
             }, GLOW_FADE_MS);
         }, GLOW_FADE_MS + GLOW_HOLD_MS);                          // 完全に点いてから2秒保持
     }
