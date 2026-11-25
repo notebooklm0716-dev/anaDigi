@@ -97,12 +97,28 @@
         box-sizing: border-box;
     }
 
+    /* ランダムに1つだけ光る淡い赤のグロー（文字盤の上、針の下） */
+    .glow {
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        background: radial-gradient(circle at 50% 50%,
+            rgba(255, 82, 70, 0.50) 0%,
+            rgba(255, 105, 92, 0.30) 58%,
+            rgba(255, 130, 118, 0.10) 100%);
+        opacity: 0;
+        transition: opacity 1.6s ease-in-out; /* ゆっくり点いて、ゆっくり消える */
+        z-index: 1;
+        pointer-events: none;
+    }
+
     .tick {
         position: absolute;
         width: calc(var(--clock-size) * 0.045);
         height: calc(var(--clock-size) * 0.045);
         border-radius: 50%;
         background: #d9cfb4;
+        z-index: 2;
     }
     .tick.t12 { top: 6%;  left: 50%; transform: translateX(-50%); }
     .tick.t3  { right: 6%; top: 50%; transform: translateY(-50%); }
@@ -331,6 +347,7 @@
         const div = document.createElement('div');
         div.className = 'clock';
         div.innerHTML = `
+            <div class="glow"></div>
             <span class="tick t12"></span><span class="tick t3"></span>
             <span class="tick t6"></span><span class="tick t9"></span>
             <div class="hand hour"></div>
@@ -355,7 +372,8 @@
                         h: 0, m: 0, s: 0, hT: 0, mT: 0, sT: 0,
                         hourEl: cell.querySelector('.hour'),
                         minuteEl: cell.querySelector('.minute'),
-                        secondEl: cell.querySelector('.second')
+                        secondEl: cell.querySelector('.second'),
+                        glowEl: cell.querySelector('.glow')
                     });
                 }
                 group.appendChild(digitEl);
@@ -407,6 +425,56 @@
         }
     }
 
+    // ===== ランダムグロー（アナログ表示中だけ） =====
+    // 96個のうちランダムな1つだけが、ゆっくり淡く赤く光る（フェードイン1.6秒＝CSS側）、
+    // 2秒光り続け、ゆっくり消える（フェードアウト1.6秒）。間を少し空けて繰り返す。
+    const GLOW_HOLD_MS = 2000;   // 光り続ける時間
+    const GLOW_FADE_MS = 1600;   // CSSの transition と同じ
+    let glowTimer = null;
+    let glowRunning = false;
+    let lastGlowIndex = -1;
+    let currentGlowEl = null;
+
+    function stopGlow() {
+        glowRunning = false;
+        if (glowTimer) { clearTimeout(glowTimer); glowTimer = null; }
+        if (currentGlowEl) {
+            // 数字表示へ移るときは残像を残さず即消し（transitionを一時的に切る）
+            const el = currentGlowEl;
+            el.style.transition = 'none';
+            el.style.opacity = '0';
+            currentGlowEl = null;
+            setTimeout(() => { el.style.transition = ''; }, 50);
+        }
+    }
+
+    function glowCycle() {
+        if (!glowRunning) return;
+        if (mode !== 'analog') { stopGlow(); return; }
+        const cells = allCells();
+        let idx;
+        do { idx = Math.floor(Math.random() * cells.length); } while (idx === lastGlowIndex);
+        lastGlowIndex = idx;
+        const el = cells[idx].glowEl;
+        currentGlowEl = el;
+        el.style.opacity = '1';                                   // ゆっくり点く
+        glowTimer = setTimeout(() => {
+            if (!glowRunning) return;
+            el.style.opacity = '0';                               // ゆっくり消える
+            glowTimer = setTimeout(() => {
+                if (currentGlowEl === el) currentGlowEl = null;
+                if (!glowRunning) return;
+                glowTimer = setTimeout(glowCycle, 600 + Math.random() * 1600); // 次までの間（ランダム）
+            }, GLOW_FADE_MS);
+        }, GLOW_FADE_MS + GLOW_HOLD_MS);                          // 完全に点いてから2秒保持
+    }
+
+    function startGlow() {
+        if (glowRunning) return;
+        glowRunning = true;
+        glowTimer = setTimeout(glowCycle, 500);
+    }
+
     // ===== 等速・時計回りの遷移アニメーション =====
     // 全ての針が同時に動き出し、同じ角速度(度/秒)で時計回りに回り、
     // 自分の目標に着いた針から止まっていく。
@@ -431,6 +499,7 @@
         if (allDone) {
             mode = animTargetMode;
             animTargetMode = null;
+            if (mode === 'analog') startGlow(); // アナログ表示に戻ったらグローを再開
         }
     }
 
@@ -440,6 +509,7 @@
 
     // 数字表示へ：現在の HH:MM（24時間制）を4桁のパターンに割り当てる
     function transitionToDigit() {
+        stopGlow(); // グローはアナログ表示中だけ
         const now = new Date();
         displayedHHMM = hhmmString(now);
         digitsState.forEach((cells, digitIdx) => {
@@ -508,6 +578,7 @@
 
     buildStage();
     tickAnalog();
+    startGlow();
     setInterval(mainLoop, 33);
 </script>
 
